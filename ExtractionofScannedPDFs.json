@@ -1,0 +1,647 @@
+{
+  "name": "ExtractionofScannedPDFs",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "// Get input from previous node\nconst inputData = $json;\n\n// Step 1: Extract the text part that contains JSON\nconst rawText = inputData.content.parts[0].text;\n\n// Step 2: Clean and parse the JSON (remove code block markdown)\nconst cleanText = rawText.replace(/```json|```/g, '').trim();\nconst parsed = JSON.parse(cleanText);\n\n// Step 3: Extract individual variables\nconst invoiceNumber = parsed.invoice_number;\nconst invoiceDate = parsed.invoice_date;\nconst vendorEmail = parsed.vendor_email;\nconst vendorName = parsed.vendor_name;\nconst finalAmount = parsed.final_amount_eur;\n\n// Step 4: Return as separate fields\nreturn [\n  {\n    Invoice_Number: invoiceNumber,\n    Invoice_Date: invoiceDate,\n    Vendor_Email: vendorEmail,\n    Vendor_Name: vendorName,\n    Final_Amount: finalAmount\n  }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1392,
+        48
+      ],
+      "id": "c0932c64-54cd-4530-8517-3eba9eac1ecc",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \n    CASE \n        WHEN EXISTS (SELECT 1 FROM Vendors WHERE Vendor_Name = '{{ $json.Vendor_Name }}') \n        THEN CAST(1 AS BIT)  -- true\n        ELSE CAST(0 AS BIT)  -- false\n    END AS VendorExists;\n"
+      },
+      "type": "n8n-nodes-base.microsoftSql",
+      "typeVersion": 1.1,
+      "position": [
+        1616,
+        48
+      ],
+      "id": "f6e72d75-d169-4a4b-9c10-6fde804f7fbd",
+      "name": "Microsoft SQL",
+      "credentials": {
+        "microsoftSql": {
+          "id": "MP9MMe9YBWMWYKvg",
+          "name": "Microsoft SQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "f49b53ca-1503-4337-9cc9-1a65d8904a29",
+              "leftValue": "={{ $json.VendorExists }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1792,
+        48
+      ],
+      "id": "61fde44c-5feb-42bf-924c-6552c2552a27",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO Vendors (Vendor_Name, Vendor_Email, Vendor_Insert_DateTime)\nVALUES \n    ('{{ $('Code in JavaScript').item.json.Vendor_Name }}', '{{ $('Code in JavaScript').item.json.Vendor_Email }}', GETDATE());"
+      },
+      "type": "n8n-nodes-base.microsoftSql",
+      "typeVersion": 1.1,
+      "position": [
+        2000,
+        240
+      ],
+      "id": "d7763d5c-eb04-4ea9-985b-dd831f37135c",
+      "name": "Microsoft SQL1",
+      "credentials": {
+        "microsoftSql": {
+          "id": "MP9MMe9YBWMWYKvg",
+          "name": "Microsoft SQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT Vendor_ID \nFROM Vendors \nWHERE Vendor_Name = '{{ $('Code in JavaScript').item.json.Vendor_Name }}';\n"
+      },
+      "type": "n8n-nodes-base.microsoftSql",
+      "typeVersion": 1.1,
+      "position": [
+        2256,
+        32
+      ],
+      "id": "a0347e6d-eb9a-480e-b052-438a7d79097a",
+      "name": "Microsoft SQL2",
+      "credentials": {
+        "microsoftSql": {
+          "id": "MP9MMe9YBWMWYKvg",
+          "name": "Microsoft SQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO InvoicesDetails (\n    Unique_ID,\n    Vendor_ID,\n    Invoice_Number,\n    Invoice_Date,\n    Total_Amount1,\n    Processed_File_Full_Path,\n    Rename_Status,\n    Error_Remark,\n    Record_Insert_DateTime,\n    Email_Scan_File_Received_Date,\n    Source_File_Came_From\n)\nVALUES (\n    '{{ $json.UniqueID }}',                                      -- e.g. DBID-3955820_1\n    {{ $('Microsoft SQL2').item.json.Vendor_ID }},               -- Vendor_ID (numeric, no quotes)\n    '{{ $('Code in JavaScript').item.json.Invoice_Number }}',    -- Invoice Number\n    '{{ $json.InvoiceDate }}',      -- Invoice Date\n    {{ $('Code in JavaScript').item.json.Final_Amount.replace(\"€\", \"\").replace(\",\", \".\").trim() }},        -- Total Amount (numeric)\n    NULL,                                   -- File Path\n    'Pending',                                                   -- Rename Status\n    NULL,                                                        -- Error Remark\n    GETDATE(),\n    NULL,\n    NULL  -- Insert DateTime\n);\n"
+      },
+      "type": "n8n-nodes-base.microsoftSql",
+      "typeVersion": 1.1,
+      "position": [
+        2672,
+        32
+      ],
+      "id": "dec9acaa-3b87-4ce8-92fb-fb05e0c60cd5",
+      "name": "Microsoft SQL3",
+      "credentials": {
+        "microsoftSql": {
+          "id": "MP9MMe9YBWMWYKvg",
+          "name": "Microsoft SQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "715f6874-c1a0-426e-890f-f98effed22e8",
+              "name": "UniqueID",
+              "value": "={{ $('Code in JavaScript').item.json.Invoice_Number }}_{{ $json.Vendor_ID }}",
+              "type": "string"
+            },
+            {
+              "id": "bdf3256d-ce4f-4c56-923a-ae4d62e5e069",
+              "name": "Invoice_Number",
+              "value": "={{ $('Code in JavaScript').item.json.Invoice_Number }}",
+              "type": "string"
+            },
+            {
+              "id": "8bb963be-4912-4ddb-893b-2895a4eff021",
+              "name": "ActiveScanFilePath",
+              "value": "={{ $('When Executed by Another Workflow').item.json.ActiveScannedFilePath.replaceAll('/', '\\\\').replace('\\\\*.pdf', '') }}",
+              "type": "string"
+            },
+            {
+              "id": "67fbf1cb-2646-4e86-b51d-d7057578b8e4",
+              "name": "NewName",
+              "value": "={{ $('Code in JavaScript').item.json.Vendor_Name }}^{{ $('Read/Write Files from Disk').item.json.fileName.replace('.pdf', '') }}^{{ $('Code in JavaScript').item.json.Invoice_Date }}",
+              "type": "string"
+            },
+            {
+              "id": "67090a31-6553-470d-b39e-1f72b84e90fe",
+              "name": "InvoiceDate",
+              "value": "={{ $('Code in JavaScript').item.json.Invoice_Date.replace(/\\//g, '.').split('.').reverse().join('-') }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2464,
+        32
+      ],
+      "id": "730edc42-701d-4128-8f5c-85aa96acb06f",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "resource": "document",
+        "modelId": {
+          "__rl": true,
+          "value": "models/gemini-2.5-flash-preview-05-20",
+          "mode": "list",
+          "cachedResultName": "models/gemini-2.5-flash-preview-05-20"
+        },
+        "text": "Extract the following key information from the invoice in the image:\n1. Invoice Number: (Please provide the invoice number, often labeled as \"Rechnungsnummer,\" \"Beleg-Nr.,\" \"Bon-ID,\" or \"Transaktions-Nr.\")\n2. Invoice Date: (Find the date, often labeled \"Datum\" or \"Bestelldatum,\" and format it as YYYY-MM-DD)\n3. Vendor Email: (Look for a contact email address for the vendor, containing \"@\" symbol. If not present, state \"N/A\".)\n4. Vendor Name: (Identify the name of the company that issued the invoice, usually at the top of the document.)\n5. Final Amount: (Find the total amount paid, often labeled \"Gesamtbetrag,\" \"TOTAL,\" or \"Gesamt,\" and provide the value in EUR without the currency symbol.)\n\nPresent the output in a JSON object with the following keys:\n{\n  \"invoice_number\": \"\",\n  \"invoice_date\": \"\",\n  \"vendor_email\": \"\",\n  \"vendor_name\": \"\",\n  \"final_amount_eur\": \"\"\n}",
+        "inputType": "binary",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1,
+      "position": [
+        1184,
+        48
+      ],
+      "id": "79728bf5-4c06-4754-bf6d-fd233fc43aa8",
+      "name": "Analyze document",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "Sz4iK91ZMxduXwyz",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        720,
+        48
+      ],
+      "id": "3611727c-929c-4d56-8507-d9dc00810dc0",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "fileSelector": "={{ $json.ActiveScannedFilePath }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        928,
+        48
+      ],
+      "id": "44f2d24f-1033-4dba-9255-786737e92da5",
+      "name": "Read/Write Files from Disk",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "command": "=rename \"{{ $('Edit Fields').item.json.ActiveScanFilePath }}\" \"{{ $('Edit Fields').item.json.NewName }}.pdf\"\n"
+      },
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        3152,
+        -128
+      ],
+      "id": "4337cbbe-fad5-4266-a94d-6f4033b4db6d",
+      "name": "Execute Command2",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "742c521f-3f45-4b15-b291-f50884eaa529",
+              "leftValue": "={{ $('Edit Fields').item.json.InvoiceDate }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2880,
+        32
+      ],
+      "id": "f65ecab1-62e5-42a3-9b43-5e3140a763bd",
+      "name": "If1"
+    },
+    {
+      "parameters": {
+        "command": "=powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\Users\\MESCH\\OneDrive - Mike Esch 365\\N8NInvoiceExtraction\\Configfolder\\MoveInvoice.ps1\" -InvoiceDate \"{{ $('Code in JavaScript').item.json.Invoice_Date }}\" -SourceFile \"{{ $json.FullPathwithNewName }}\""
+      },
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        3568,
+        -224
+      ],
+      "id": "f2d613bb-db85-4399-a2c3-545332605410",
+      "name": "Execute Command",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "9e6873a2-02cc-4b32-b76f-3e43b07457e1",
+              "name": "FullPathwithNewName",
+              "value": "={{ $('Edit Fields').item.json.ActiveScanFilePath.replace(/[^\\\\]+$/, '') }}{{ $('Edit Fields').item.json.NewName }}.pdf",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        3360,
+        -224
+      ],
+      "id": "395a1df4-98e1-4283-ac0d-e9afba5d838a",
+      "name": "Edit Fields1"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE InvoicesDetails\nSET Rename_Status = 'Successful',\n  Processed_File_Full_Path = '{{ $json.FinalFilePath }}'\nWHERE Unique_ID = '{{ $('Edit Fields').item.json.UniqueID }}';"
+      },
+      "type": "n8n-nodes-base.microsoftSql",
+      "typeVersion": 1.1,
+      "position": [
+        4032,
+        -256
+      ],
+      "id": "10b64d68-0d83-4985-8b9f-9efcc6ee7d50",
+      "name": "Microsoft SQL5",
+      "credentials": {
+        "microsoftSql": {
+          "id": "MP9MMe9YBWMWYKvg",
+          "name": "Microsoft SQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "31b51a69-d4a5-4779-b960-639a8976f8d3",
+              "name": "FinalFilePath",
+              "value": "={{ $json.stdout.replace(/^.*?:\\s*/, '') +'\\\\' }}{{ $('Edit Fields').item.json.NewName }}.pdf",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        3792,
+        -240
+      ],
+      "id": "5e5590f5-b90c-4434-af0f-32861ab660bd",
+      "name": "Edit Fields2"
+    },
+    {
+      "parameters": {
+        "command": "=move \"{{ $('Edit Fields').item.json.ActiveScanFilePath }}\" \"{{ $json.UnProcessedFilePath }}\""
+      },
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        3296,
+        128
+      ],
+      "id": "89ebab54-e80d-4ae2-af94-357ae42f6b19",
+      "name": "Execute Command1"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "06bf0fcb-6757-447a-912f-0d22b9e38ff9",
+              "name": "UnProcessedFilePath",
+              "value": "C:\\Users\\MESCH\\OneDrive - Mike Esch 365\\N8NInvoiceExtraction\\UnProcessed Invoices\\",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        3088,
+        128
+      ],
+      "id": "c7b4b0cf-2b11-4a46-8a56-ba454693e17f",
+      "name": "Edit Fields3"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE InvoicesDetails\nSET Rename_Status = 'Unsuccessful'\nWHERE Unique_ID = '{{ $('Edit Fields').item.json.UniqueID }}';"
+      },
+      "type": "n8n-nodes-base.microsoftSql",
+      "typeVersion": 1.1,
+      "position": [
+        3520,
+        128
+      ],
+      "id": "105d8df5-9042-48fd-9cfa-e8dba851613f",
+      "name": "Microsoft SQL4",
+      "credentials": {
+        "microsoftSql": {
+          "id": "MP9MMe9YBWMWYKvg",
+          "name": "Microsoft SQL account"
+        }
+      }
+    }
+  ],
+  "pinData": {
+    "When Executed by Another Workflow": [
+      {
+        "json": {
+          "ActiveScannedFilePath": "C:/Users/MESCH/OneDrive - Mike Esch 365/Active-Scan/Active_Scan_000031.pdf"
+        }
+      },
+      {
+        "json": {
+          "ActiveScannedFilePath": "C:/Users/MESCH/OneDrive - Mike Esch 365/Active-Scan/Active_Scan_000031.pdf"
+        }
+      }
+    ]
+  },
+  "connections": {
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Microsoft SQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Microsoft SQL": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Microsoft SQL2",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Microsoft SQL1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Microsoft SQL1": {
+      "main": [
+        [
+          {
+            "node": "Microsoft SQL2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Microsoft SQL2": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Microsoft SQL3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze document": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Read/Write Files from Disk",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read/Write Files from Disk": {
+      "main": [
+        [
+          {
+            "node": "Analyze document",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Microsoft SQL3": {
+      "main": [
+        [
+          {
+            "node": "If1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If1": {
+      "main": [
+        [
+          {
+            "node": "Execute Command2",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Edit Fields3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Command2": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields1": {
+      "main": [
+        [
+          {
+            "node": "Execute Command",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Command": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields2": {
+      "main": [
+        [
+          {
+            "node": "Microsoft SQL5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields3": {
+      "main": [
+        [
+          {
+            "node": "Execute Command1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Command1": {
+      "main": [
+        [
+          {
+            "node": "Microsoft SQL4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "c7939bfe-a570-4d4a-93ed-25676d439ac8",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "a435c2a931104fd61a8799135631d64ce74e18beeec20acef36a6f408cb32bbe"
+  },
+  "id": "RYyGJw2Kbs0kUSVM",
+  "tags": []
+}
